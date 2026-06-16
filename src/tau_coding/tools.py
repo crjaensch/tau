@@ -8,6 +8,8 @@ import asyncio
 import difflib
 import json
 import mimetypes
+import os
+import signal
 import tempfile
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
@@ -353,18 +355,27 @@ def create_bash_tool_definition(*, cwd: str | Path | None = None) -> ToolDefinit
             raise ToolInputError("timeout must be greater than 0")
 
         start = monotonic()
-        process = await asyncio.create_subprocess_shell(
-            command,
-            cwd=root,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
+        if os.name == "posix":
+            process = await asyncio.create_subprocess_shell(
+                command,
+                cwd=root,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                start_new_session=True,
+            )
+        else:
+            process = await asyncio.create_subprocess_shell(
+                command,
+                cwd=root,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
         timed_out = False
         try:
             output_bytes, _stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
         except TimeoutError:
             timed_out = True
-            process.kill()
+            _kill_process_tree(process)
             output_bytes, _stderr = await process.communicate()
 
         output = output_bytes.decode(errors="replace")
@@ -822,6 +833,19 @@ def _base64_text(data: bytes) -> str:
     import base64
 
     return base64.b64encode(data).decode("ascii")
+
+
+def _kill_process_tree(process: asyncio.subprocess.Process) -> None:
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+    else:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            return
 
 
 def _write_temp_output(output: str) -> str:
