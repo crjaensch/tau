@@ -8,6 +8,9 @@ from tau_agent.messages import AgentMessage
 from tau_agent.types import JSONValue
 
 ChatItemRole = Literal["user", "assistant", "tool", "error", "status"]
+TOOL_RESULT_PREVIEW_LINES = 8
+TOOL_PATCH_PREVIEW_LINES = 32
+TOOL_RESULT_PREVIEW_CHARS = 2_000
 
 
 @dataclass(slots=True)
@@ -70,10 +73,10 @@ def format_tool_result_block(
     status = "✓" if ok else "✗"
     lines = [f"{status} {name}"]
     if content:
-        lines.append(content)
+        lines.append(_preview_text(content, max_lines=TOOL_RESULT_PREVIEW_LINES))
     patch = _result_patch(name=name, ok=ok, data=data)
     if patch:
-        lines.extend(["", "Patch:", patch])
+        lines.extend(["", "Patch:", _preview_text(patch, max_lines=TOOL_PATCH_PREVIEW_LINES)])
     return "\n".join(lines)
 
 
@@ -87,3 +90,26 @@ def _result_patch(
         return None
     patch = data.get("patch")
     return patch if isinstance(patch, str) and patch.strip() else None
+
+
+def _preview_text(text: str, *, max_lines: int) -> str:
+    lines = text.splitlines()
+    if not lines:
+        return text[:TOOL_RESULT_PREVIEW_CHARS]
+
+    preview_lines = lines[:max_lines]
+    preview = "\n".join(preview_lines)
+    hidden_lines = max(0, len(lines) - len(preview_lines))
+
+    truncated_by_chars = len(preview) > TOOL_RESULT_PREVIEW_CHARS
+    if truncated_by_chars:
+        preview = preview[:TOOL_RESULT_PREVIEW_CHARS].rstrip()
+
+    if hidden_lines or truncated_by_chars:
+        details: list[str] = []
+        if hidden_lines:
+            details.append(f"{hidden_lines} more line{'s' if hidden_lines != 1 else ''}")
+        if truncated_by_chars:
+            details.append("additional text")
+        preview = f"{preview}\n\n[Preview only: {', '.join(details)} hidden from the TUI.]"
+    return preview

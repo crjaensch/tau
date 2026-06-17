@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, ClassVar, Protocol, cast
+from typing import Any, ClassVar, Literal, Protocol, cast
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding, BindingsMap
@@ -160,6 +160,32 @@ class SessionPickerScreen(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class CommandOutputScreen(ModalScreen[None]):
+    """Dismissible modal for slash-command output."""
+
+    BINDINGS: ClassVar[list[BindingEntry]] = [
+        Binding("escape", "close", "Close"),
+        Binding("enter", "close", "Close"),
+    ]
+
+    def __init__(self, title: str, message: str, *, theme: TuiTheme) -> None:
+        super().__init__()
+        self.title_text = title
+        self.message = message
+        self.theme = theme
+
+    def compose(self) -> ComposeResult:
+        """Compose command output."""
+        with Vertical(id="command-output"):
+            yield Static(self.title_text, id="command-output-title")
+            yield Static(self.message, id="command-output-body")
+            yield Static("Enter or Escape closes", id="command-output-help")
+
+    def action_close(self) -> None:
+        """Close the command output modal."""
+        self.dismiss(None)
+
+
 class TauTuiApp(App[None]):
     """Interactive Textual frontend for a ``CodingSession``."""
 
@@ -208,7 +234,7 @@ class TauTuiApp(App[None]):
 
     #transcript {
         height: 1fr;
-        border: round $tau-border;
+        border: solid $tau-border;
         background: $tau-transcript-background;
         padding: 0 1;
     }
@@ -216,18 +242,18 @@ class TauTuiApp(App[None]):
     #prompt {
         background: $tau-prompt-background;
         color: $tau-prompt-text;
-        border: round $tau-prompt-border;
+        border: solid $tau-prompt-border;
         margin: 0 1 0 1;
     }
 
     #autocomplete {
         height: auto;
-        max-height: 6;
+        max-height: 18;
         margin: 0 1 1 1;
         padding: 0 1;
         background: $tau-autocomplete-background;
         color: $tau-screen-text;
-        border: tall $tau-border;
+        border: solid $tau-border;
     }
 
     SessionPickerScreen {
@@ -241,7 +267,7 @@ class TauTuiApp(App[None]):
         max-height: 70%;
         padding: 1 2;
         background: $tau-chrome-background;
-        border: round $tau-border;
+        border: solid $tau-border;
     }
 
     #session-picker-title {
@@ -255,10 +281,39 @@ class TauTuiApp(App[None]):
         height: auto;
         max-height: 16;
         background: $tau-transcript-background;
-        border: tall $tau-border;
+        border: solid $tau-border;
     }
 
     #session-picker-help {
+        height: 1;
+        margin-top: 1;
+        color: $tau-muted-text;
+    }
+
+    #command-output {
+        width: 82;
+        max-width: 92%;
+        height: auto;
+        max-height: 80%;
+        padding: 1 2;
+        background: $tau-chrome-background;
+        border: solid $tau-border;
+    }
+
+    #command-output-title {
+        height: 1;
+        color: $tau-chrome-text;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #command-output-body {
+        background: $tau-transcript-background;
+        color: $tau-screen-text;
+        padding: 1;
+    }
+
+    #command-output-help {
         height: 1;
         margin-top: 1;
         color: $tau-muted-text;
@@ -324,7 +379,16 @@ class TauTuiApp(App[None]):
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle a submitted prompt or slash command."""
-        text = event.value.strip()
+        raw_text = event.value
+        applied_completion = self._apply_selected_completion(raw_text)
+        if applied_completion is not None and applied_completion != raw_text:
+            event.input.value = applied_completion
+            event.input.cursor_position = len(applied_completion)
+            self._completion_state = self._build_completion_state(applied_completion)
+            self._refresh_completions()
+            return
+
+        text = raw_text.strip()
         event.input.value = ""
         self._completion_state = CompletionState()
         self._refresh_completions()
@@ -338,21 +402,20 @@ class TauTuiApp(App[None]):
             if command.compact_summary is not None:
                 try:
                     compact_message = await self.session.compact(command.compact_summary)
-                    self.state.add_item("status", compact_message)
+                    self._notify(compact_message)
                 except Exception as exc:  # noqa: BLE001 - surface command failures in the TUI
-                    self.state.add_item("error", f"Error: {exc}")
+                    self._notify(f"Error: {exc}", severity="error")
             if command.resume_session_id is not None:
                 await self._resume_session(command.resume_session_id)
             if command.message:
-                self.state.add_item("status", command.message)
+                self._show_command_message(text, command.message)
             self._refresh()
             if command.exit_requested:
                 self.exit()
             return
 
         if self.state.running:
-            self.state.add_item("status", "Tau is already working. Press Escape to cancel.")
-            self._refresh()
+            self._notify("Tau is already working. Press Escape to cancel.")
             return
 
         self.state.add_item("user", text)
@@ -375,18 +438,17 @@ class TauTuiApp(App[None]):
         """Cancel the active agent turn."""
         if self.state.running:
             self.session.cancel()
-            self.state.add_item("status", "Cancellation requested.")
+            self._notify("Cancellation requested.")
         else:
-            self.state.add_item("status", "Nothing to cancel.")
-        self._refresh()
+            self._notify("Nothing to cancel.")
 
     def action_accept_completion(self) -> None:
         """Accept the currently selected prompt completion."""
-        item = self._completion_state.selected
-        if item is None:
-            return
         prompt = self.query_one("#prompt", Input)
-        prompt.value = item.apply(prompt.value)
+        applied = self._apply_selected_completion(prompt.value)
+        if applied is None:
+            return
+        prompt.value = applied
         prompt.cursor_position = len(prompt.value)
         self._completion_state = self._build_completion_state(prompt.value)
         self._refresh_completions()
@@ -417,13 +479,11 @@ class TauTuiApp(App[None]):
     def action_open_session_picker(self) -> None:
         """Open the indexed session picker."""
         if self.state.running:
-            self.state.add_item("status", "Tau is already working. Press Escape to cancel.")
-            self._refresh()
+            self._notify("Tau is already working. Press Escape to cancel.")
             return
         records = _session_records(self.session)
         if not records:
-            self.state.add_item("status", "No sessions found.")
-            self._refresh()
+            self._notify("No sessions found.")
             return
         self.push_screen(
             SessionPickerScreen(records, theme=self.tui_settings.resolved_theme),
@@ -440,10 +500,36 @@ class TauTuiApp(App[None]):
             resume_message = await self.session.resume(session_id)
             self.state.clear()
             self.state.load_messages(self.session.messages)
-            self.state.add_item("status", resume_message)
+            self._notify(resume_message)
         except Exception as exc:  # noqa: BLE001 - surface command failures in the TUI
-            self.state.add_item("error", f"Error: {exc}")
+            self._notify(f"Error: {exc}", severity="error")
         self._refresh()
+
+    def _apply_selected_completion(self, value: str) -> str | None:
+        item = self._completion_state.selected
+        if item is None:
+            return None
+        return item.apply(value)
+
+    def _show_command_message(self, command_text: str, message: str) -> None:
+        if "\n" in message:
+            self.push_screen(
+                CommandOutputScreen(
+                    _command_output_title(command_text),
+                    message,
+                    theme=self.tui_settings.resolved_theme,
+                )
+            )
+            return
+        self._notify(message)
+
+    def _notify(
+        self,
+        message: str,
+        *,
+        severity: Literal["information", "warning", "error"] = "information",
+    ) -> None:
+        self.notify(message, severity=severity)
 
     def _refresh(self) -> None:
         theme = self.tui_settings.resolved_theme
@@ -513,6 +599,11 @@ def _short_path(path: Path) -> str:
 
 def _session_picker_label(record: SessionCompletionRecord) -> str:
     return f"{record.id}\n  {_session_option(record).description}"
+
+
+def _command_output_title(command_text: str) -> str:
+    command_name = command_text.split(maxsplit=1)[0].removeprefix("/")
+    return f"/{command_name or 'help'}"
 
 
 def _theme_css_variables(theme: TuiTheme) -> dict[str, str]:

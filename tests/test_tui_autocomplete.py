@@ -5,6 +5,21 @@ from tau_coding.skills import Skill
 from tau_coding.tui.autocomplete import CompletionOption, build_completion_state
 
 
+def test_command_completion_for_slash_lists_every_registered_command() -> None:
+    registry = create_default_command_registry()
+    state = build_completion_state(
+        "/",
+        command_registry=registry,
+        skills=(),
+        prompt_templates=(),
+    )
+
+    assert [item.display for item in state.items] == [
+        f"/{command.name}" if command.name != "skill" else "/skill:"
+        for command in registry.list_commands()
+    ]
+
+
 def test_command_completion_suggests_registered_commands() -> None:
     state = build_completion_state(
         "/st",

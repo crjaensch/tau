@@ -13,6 +13,7 @@ from tau_agent import (
     ToolExecutionUpdateEvent,
 )
 from tau_coding.tui import TuiEventAdapter, TuiState
+from tau_coding.tui.state import format_tool_result_block
 
 
 def test_tui_adapter_tracks_running_state() -> None:
@@ -86,6 +87,17 @@ def test_tui_adapter_records_tool_updates_and_results() -> None:
         ("tool", "✓ read\ndone"),
         ("tool", "✗ bash\nfailed"),
     ]
+
+
+def test_tool_result_blocks_preview_long_content() -> None:
+    content = "\n".join(f"line {index}" for index in range(1, 12))
+
+    block = format_tool_result_block(name="read", ok=True, content=content)
+
+    assert "line 1" in block
+    assert "line 8" in block
+    assert "line 9" not in block
+    assert "3 more lines" in block
 
 
 def test_tui_adapter_renders_live_edit_patch() -> None:

@@ -15,9 +15,11 @@ Textual widgets render the transcript and controls
 
 ## Current polish slices
 
-Live tool results now render successful output in the transcript, matching
-restored session history. This keeps tool-call blocks useful during an active
-run instead of hiding successful command output until the session is reloaded.
+Live tool results now render successful output previews in the transcript,
+matching restored session history. The TUI shows the first few lines and a
+preview hint when additional content is hidden, so large `read` or `bash`
+results do not flood the conversation while the durable session still keeps the
+complete tool result for model context and replay.
 
 Transcript blocks now render fenced code and persisted edit patches with Rich
 syntax renderables inside the same Pi-style stacked message blocks. The
@@ -38,8 +40,16 @@ blocks from persisted JSONL entries.
 
 The TUI also has a command-palette entry point. Pressing `Ctrl+K` focuses the
 prompt, inserts `/`, and shows all slash-command completions using the existing
-completion engine. Selection still uses the same `Tab`, `Up`, and `Down`
-bindings as ordinary slash-command autocomplete.
+completion engine. Selection uses the same `Tab`, `Up`, and `Down` bindings as
+ordinary slash-command autocomplete. Pressing `Enter` while a highlighted
+completion would change the prompt now applies that completion without
+submitting the prompt, matching common terminal picker behavior.
+
+Slash-command output is now transient UI instead of transcript content. Short
+command results use Textual notifications, and multi-line output such as
+`/help`, `/skills`, `/sessions`, `/status`, `/resources`, and `/context` opens a
+dismissible modal. This keeps command reference material out of the agent
+conversation while preserving access to the information.
 
 The same completion engine now suggests available values for `/model` and
 `/provider` arguments. This gives the prompt a lightweight picker for model and
@@ -64,10 +74,11 @@ navigation, session picker, cancellation, and quit keys while keeping the
 configuration in `tau_coding.tui` instead of the reusable agent harness.
 
 The same TUI settings file now supports named built-in themes. `tau-dark`
-remains the default, and `high-contrast` provides a brighter dark palette. Theme
-selection feeds Textual CSS variables plus Rich transcript/sidebar renderers, so
-the app chrome and message blocks stay visually consistent without adding UI
-policy to `tau_agent`.
+remains the default, and `high-contrast` provides a brighter dark palette. The
+default theme now uses flatter square message blocks with muted borders and
+subtle role-specific backgrounds. Theme selection feeds Textual CSS variables
+plus Rich transcript/sidebar renderers, so the app chrome and message blocks
+stay visually consistent without adding UI policy to `tau_agent`.
 
 The frontend boundary is now documented in [Building a Custom TUI](../custom-tui.md).
 That guide describes how another terminal UI can consume `CodingSession`,

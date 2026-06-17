@@ -20,7 +20,7 @@ from tau_coding.skills import Skill
 from tau_coding.system_prompt import ProjectContextFile
 from tau_coding.tools import create_coding_tools
 from tau_coding.tui import app as tui_app
-from tau_coding.tui.app import SessionPickerScreen, TauTuiApp
+from tau_coding.tui.app import CommandOutputScreen, SessionPickerScreen, TauTuiApp
 from tau_coding.tui.config import HIGH_CONTRAST_THEME, TuiKeybindings, TuiSettings
 from tau_coding.tui.state import ChatItem
 from tau_coding.tui.widgets import render_chat_item, render_session_sidebar
@@ -49,6 +49,11 @@ class FakeSession:
         self.resumed_session_ids: list[str] = []
 
     def handle_command(self, text: str) -> CommandResult:
+        if text == "/help":
+            return CommandResult(
+                handled=True,
+                message="Available commands:\n/help\tShow available slash commands.",
+            )
         if text == "/clear":
             return CommandResult(handled=True, clear_requested=True, message="Transcript cleared.")
         if text.startswith("/compact "):
@@ -98,7 +103,7 @@ def test_chat_items_render_as_unlabeled_blocks() -> None:
     assert "you:" not in output
     assert "assistant:" not in output
     assert "tool:" not in output
-    assert output.startswith("╭")
+    assert output.startswith("┌")
 
 
 def test_chat_items_fold_long_unbroken_text_to_console_width() -> None:
@@ -242,9 +247,7 @@ async def test_tui_app_clear_command_clears_visible_state() -> None:
         prompt.value = "/clear"
         await pilot.press("enter")
 
-        assert [(item.role, item.text) for item in app.state.items] == [
-            ("status", "Transcript cleared.")
-        ]
+        assert app.state.items == []
 
 
 @pytest.mark.anyio
@@ -258,9 +261,7 @@ async def test_tui_app_compact_command_runs_session_compaction() -> None:
         await pilot.press("enter")
 
         assert session.compact_summaries == ["Summary of earlier work."]
-        assert ("status", "Compacted 2 context entries.") in [
-            (item.role, item.text) for item in app.state.items
-        ]
+        assert [(item.role, item.text) for item in app.state.items] == [("user", "Earlier")]
 
 
 @pytest.mark.anyio
@@ -276,7 +277,6 @@ async def test_tui_app_resume_command_reloads_visible_state() -> None:
         assert session.resumed_session_ids == ["session-1"]
         assert [(item.role, item.text) for item in app.state.items] == [
             ("user", "Restored prompt"),
-            ("status", "Resumed session: session-1"),
         ]
 
 
@@ -293,6 +293,22 @@ async def test_tui_app_completes_registered_slash_command() -> None:
         await pilot.press("tab")
 
         assert prompt.value == "/status"
+
+
+@pytest.mark.anyio
+async def test_tui_app_enter_accepts_completion_without_submitting() -> None:
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/st"
+        app._completion_state = app._build_completion_state(prompt.value)
+        app._refresh_completions()
+
+        await pilot.press("enter")
+
+        assert prompt.value == "/status"
+        assert app.state.items == []
 
 
 @pytest.mark.anyio
@@ -387,7 +403,6 @@ async def test_tui_app_session_picker_resumes_selected_session() -> None:
         assert session.resumed_session_ids == ["session-1"]
         assert [(item.role, item.text) for item in app.state.items] == [
             ("user", "Restored prompt"),
-            ("status", "Resumed session: session-1"),
         ]
 
 
@@ -421,6 +436,30 @@ async def test_tui_app_opens_command_palette_from_keybinding() -> None:
         assert app._completion_state.items
         assert any(item.display == "/help" for item in app._completion_state.items)
         assert app.query_one("#autocomplete").display is True
+
+
+@pytest.mark.anyio
+async def test_tui_app_help_uses_modal_instead_of_transcript() -> None:
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "/help"
+        await pilot.press("enter")
+
+        assert isinstance(app.screen, CommandOutputScreen)
+        assert app.state.items == []
+        assert "Available commands:" in app.screen.message
+
+
+@pytest.mark.anyio
+async def test_tui_app_escape_without_running_does_not_append_transcript_status() -> None:
+    app = TauTuiApp(FakeSession(messages=[UserMessage(content="Earlier")]))
+
+    async with app.run_test() as pilot:
+        await pilot.press("escape")
+
+        assert [(item.role, item.text) for item in app.state.items] == [("user", "Earlier")]
 
 
 @pytest.mark.anyio

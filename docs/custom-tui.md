@@ -88,7 +88,13 @@ result = session.handle_command(text)
 ```
 
 If `result.handled` is true, the frontend should apply the requested UI effect
-or show `result.message`. Existing result fields include:
+or show `result.message` outside the durable conversation when the message is
+command reference or status text. The built-in Textual frontend uses
+notifications for short command results and a dismissible modal for multi-line
+output such as `/help`, `/skills`, `/sessions`, `/status`, `/resources`, and
+`/context`.
+
+Existing result fields include:
 
 - `exit_requested`
 - `clear_requested`
@@ -101,7 +107,8 @@ If `result.compact_summary` is set, call:
 message = await session.compact(result.compact_summary)
 ```
 
-Then render the returned status message.
+Then show the returned status message as transient UI unless the custom
+frontend intentionally wants command status entries in its transcript.
 
 The `/skill:<name> [request]` form is intentionally a prompt-expansion path, so
 it is not consumed by normal command handling. Pass it through to
@@ -149,6 +156,11 @@ Custom TUIs can reuse this helper for Pi-style slash-command completion,
 `/skill:` completion, and lightweight model/provider/session argument pickers.
 Use `CompletionOption` when a picker row should apply one value but show richer
 metadata such as a session title, model, or working directory.
+
+When the user presses `Enter` with a highlighted completion that would change
+the prompt text, apply the completion and keep focus in the input instead of
+submitting immediately. If the highlighted completion would not change the text,
+the frontend can treat `Enter` as normal submission.
 
 A custom picker UI can also read the same data directly:
 
@@ -220,6 +232,11 @@ async for event in session.prompt(user_text):
 `TuiEventAdapter` is deliberately small. It translates agent events into display
 items but does not own widgets, layouts, colors, or terminal behavior.
 
+The reference formatter previews long tool-result content before adding it to
+visible state. Custom TUIs should avoid rendering full `read` or `bash` output
+by default; show a compact preview in the transcript and provide an explicit
+way to inspect the full result if the frontend needs one.
+
 ## What Not To Depend On
 
 Avoid custom UI dependencies on:
@@ -239,8 +256,11 @@ A custom TUI should prove these behaviors before it is considered compatible:
 - Restored tool results use persisted metadata for details such as edit patches.
 - Prompt submission streams assistant deltas and tool events live.
 - Slash commands run through `session.handle_command()`.
+- Command reference/status output does not pollute the durable conversation.
 - `/skill:<name>` prompts pass through to `session.prompt()`.
+- Completion `Enter` applies the highlighted completion before submission.
 - Cancellation calls `session.cancel()`.
+- Large tool results render as compact previews by default.
 - Keybindings and themes are owned by the frontend and do not leak into `tau_agent`.
 - Model/provider choices come from the session, not hardcoded UI lists.
 - Session persistence is handled through `CodingSession` and `SessionManager`.

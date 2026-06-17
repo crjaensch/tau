@@ -5,6 +5,7 @@ from pathlib import Path
 from re import search
 from typing import Protocol
 
+from rich import box
 from rich.console import Group, RenderableType
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -151,6 +152,7 @@ def render_chat_item(
     )
     return Panel(
         body,
+        box=box.SQUARE,
         border_style=role_style.border,
         style=role_style.body,
         padding=(0, 1),
@@ -295,7 +297,7 @@ def render_completion_suggestions(
 ) -> Text:
     """Render prompt completion suggestions."""
     text = Text()
-    for index, item in enumerate(state.items[:6]):
+    for index, item in enumerate(state.items):
         if index:
             text.append("\n")
         selected = index == state.selected_index

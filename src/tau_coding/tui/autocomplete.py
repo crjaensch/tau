@@ -117,7 +117,7 @@ def _command_completions(
 def _command_alias_completions(
     command: SlashCommand, *, prefix: str, token_end: int
 ) -> list[CompletionItem]:
-    names = (command.name, *command.aliases)
+    names = (command.name,) if not prefix else (command.name, *command.aliases)
     suggestions: list[CompletionItem] = []
     for name in names:
         if not name.startswith(prefix):
