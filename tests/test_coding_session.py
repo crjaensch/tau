@@ -683,7 +683,12 @@ async def test_session_switches_configured_provider(
 ) -> None:
     created_providers: list[SwitchableFakeProvider] = []
 
-    def create_provider(provider_config: object) -> SwitchableFakeProvider:
+    def create_provider(
+        provider_config: object,
+        *,
+        credential_store: FileCredentialStore | None = None,
+    ) -> SwitchableFakeProvider:
+        del credential_store
         provider = SwitchableFakeProvider(provider_config)
         created_providers.append(provider)
         return provider
@@ -734,6 +739,58 @@ async def test_session_switches_configured_provider(
     await session.aclose()
 
     assert [provider.closed for provider in created_providers] == [True, True]
+
+
+@pytest.mark.anyio
+async def test_session_switch_uses_session_credential_store(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    tau_paths = TauPaths(home=tmp_path / "tau-home", agents_home=tmp_path / "agents-home")
+    FileCredentialStore(tau_paths.home / "credentials.json").set("openai", "stored-key")
+    credential_store_paths: list[Path] = []
+
+    def create_provider(
+        provider_config: object,
+        *,
+        credential_store: FileCredentialStore | None = None,
+    ) -> SwitchableFakeProvider:
+        del provider_config
+        assert credential_store is not None
+        credential_store_paths.append(credential_store.path)
+        return SwitchableFakeProvider(object())
+
+    monkeypatch.setattr(coding_session_module, "create_model_provider", create_provider)
+    settings = ProviderSettings(
+        default_provider="local",
+        providers=(
+            OpenAICompatibleProviderConfig(
+                name="local",
+                api_key_env="LOCAL_API_KEY",
+                credential_name=None,
+                models=("qwen",),
+                default_model="qwen",
+            ),
+            OpenAICompatibleProviderConfig(name="openai", credential_name="openai"),
+        ),
+    )
+    session = await CodingSession.load(
+        CodingSessionConfig(
+            provider=FakeProvider([]),
+            model="fake",
+            system="You are Tau.",
+            storage=JsonlSessionStorage(tmp_path / "switch-store-session.jsonl"),
+            cwd=tmp_path,
+            provider_name="local",
+            provider_settings=settings,
+            resource_paths=TauResourcePaths(root=tau_paths.home, paths=tau_paths),
+        )
+    )
+
+    session.set_provider("openai")
+
+    assert credential_store_paths == [tau_paths.home / "credentials.json"]
 
 
 @pytest.mark.anyio

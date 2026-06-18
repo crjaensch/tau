@@ -363,7 +363,10 @@ class CodingSession:
 
         provider_config = self._provider_settings.get_provider(provider_name)
         try:
-            provider = create_model_provider(provider_config)
+            provider = create_model_provider(
+                provider_config,
+                credential_store=self._credential_store,
+            )
         except RuntimeError as exc:
             raise ProviderConfigError(str(exc)) from exc
         self._owned_providers.append(provider)
