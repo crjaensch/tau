@@ -7,7 +7,7 @@ from typing import Annotated
 import anyio
 import typer
 
-from tau_agent.session import SessionEntry, SessionStorage
+from tau_agent.session import JsonlSessionStorage, SessionEntry, SessionStorage
 from tau_ai import (
     DEFAULT_OPENAI_COMPATIBLE_MAX_RETRIES,
     DEFAULT_OPENAI_COMPATIBLE_MAX_RETRY_DELAY_SECONDS,
@@ -31,6 +31,7 @@ from tau_coding.provider_runtime import create_model_provider
 from tau_coding.rendering import PrintOutputMode, create_event_renderer
 from tau_coding.resources import TauResourcePaths
 from tau_coding.session import CodingSession, CodingSessionConfig, jsonl_session_storage
+from tau_coding.session_export import default_session_export_path, export_session_html
 from tau_coding.session_manager import CodingSessionRecord, SessionManager
 from tau_coding.tui import run_tui_app
 
@@ -80,8 +81,8 @@ def setup_command(
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
-    prompt_arg: Annotated[
-        str | None,
+    prompt_args: Annotated[
+        list[str] | None,
         typer.Argument(help="Initial prompt to run in interactive TUI mode."),
     ] = None,
     prompt_option: Annotated[
@@ -162,15 +163,30 @@ def main(
     if ctx.invoked_subcommand is not None:
         return
 
-    if prompt_option is None and prompt_arg == "sessions":
+    positional_args = prompt_args or []
+    command = positional_args[0] if positional_args else None
+    initial_prompt = " ".join(positional_args) if positional_args else None
+
+    if prompt_option is None and command == "sessions" and len(positional_args) == 1:
         render_session_list(SessionManager().list_sessions())
         raise typer.Exit()
 
-    if prompt_option is None and prompt_arg == "providers":
+    if prompt_option is None and command == "export":
+        if len(positional_args) not in {2, 3}:
+            raise typer.BadParameter("Usage: tau export <session-id-or-jsonl> [output.html]")
+        output_path = Path(positional_args[2]).expanduser() if len(positional_args) == 3 else None
+        try:
+            exported_path = anyio.run(export_session_command, positional_args[1], output_path)
+        except RuntimeError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+        typer.echo(f"Exported session to {exported_path}")
+        raise typer.Exit()
+
+    if prompt_option is None and command == "providers" and len(positional_args) == 1:
         providers_command()
         raise typer.Exit()
 
-    if prompt_option is None and prompt_arg == "setup":
+    if prompt_option is None and command == "setup" and len(positional_args) == 1:
         setup_command(
             provider_name=provider or DEFAULT_PROVIDER_NAME,
             base_url=setup_base_url,
@@ -193,7 +209,7 @@ def main(
                 new_session,
                 provider,
                 auto_compact_threshold,
-                prompt_arg,
+                initial_prompt,
             )
         except RuntimeError as exc:
             raise typer.BadParameter(str(exc)) from exc
@@ -241,6 +257,42 @@ def render_session_list(records: list[CodingSessionRecord]) -> None:
     for record in records:
         title = record.title or "Untitled"
         typer.echo(f"{record.id}\t{title}\t{record.model}\t{record.cwd}")
+
+
+async def export_session_command(
+    session_ref: str,
+    output_path: Path | None = None,
+    session_manager: SessionManager | None = None,
+) -> Path:
+    """Export an indexed session id or JSONL file path to standalone HTML."""
+    session_path, title = _resolve_export_source(session_ref, session_manager)
+    entries = await JsonlSessionStorage(session_path).read_all()
+    destination = output_path or default_session_export_path(session_path)
+    return export_session_html(
+        entries,
+        destination,
+        title=title,
+        source=str(session_path),
+    )
+
+
+def _resolve_export_source(
+    session_ref: str,
+    session_manager: SessionManager | None = None,
+) -> tuple[Path, str]:
+    candidate_path = Path(session_ref).expanduser()
+    if candidate_path.exists():
+        if candidate_path.is_dir():
+            raise RuntimeError(f"Session export source is a directory: {candidate_path}")
+        return candidate_path, f"Tau session {candidate_path.stem}"
+
+    manager = session_manager or SessionManager()
+    record = manager.get_session(session_ref)
+    if record is None:
+        raise RuntimeError(f"Unknown session or file: {session_ref}")
+
+    title = record.title or f"Tau session {record.id}"
+    return record.path, title
 
 
 def render_provider_settings(settings: ProviderSettings) -> None:

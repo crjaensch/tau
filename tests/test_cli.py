@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from tau_agent import AssistantMessage
+from tau_agent import AssistantMessage, UserMessage
 from tau_agent.session import JsonlSessionStorage, MessageEntry
 from tau_ai import (
     FakeProvider,
@@ -12,7 +12,7 @@ from tau_ai import (
     ProviderResponseStartEvent,
     ProviderTextDeltaEvent,
 )
-from tau_coding import CodingSessionRecord, cli
+from tau_coding import CodingSessionRecord, SessionManager, cli
 from tau_coding.cli import app, run_print_mode
 from tau_coding.paths import TauPaths
 from tau_coding.provider_config import load_provider_settings
@@ -447,6 +447,70 @@ def test_sessions_command_handles_empty_index(monkeypatch: pytest.MonkeyPatch) -
 
     assert result.exit_code == 0
     assert "No sessions found." in result.stdout
+
+
+@pytest.mark.anyio
+async def test_export_session_command_writes_html_for_indexed_session(tmp_path: Path) -> None:
+    manager = SessionManager(TauPaths(home=tmp_path / ".tau", agents_home=tmp_path / ".agents"))
+    record = manager.create_session(
+        cwd=tmp_path,
+        model="fake",
+        title="Exported Session",
+        session_id="session-1",
+    )
+    await JsonlSessionStorage(record.path).append(
+        MessageEntry(id="root", message=UserMessage(content="Export this"))
+    )
+
+    output_path = await cli.export_session_command(
+        "session-1",
+        tmp_path / "session.html",
+        session_manager=manager,
+    )
+
+    html = output_path.read_text(encoding="utf-8")
+    assert output_path == tmp_path / "session.html"
+    assert "<title>Exported Session</title>" in html
+    assert "Export this" in html
+    assert str(record.path) in html
+
+
+@pytest.mark.anyio
+async def test_export_session_command_writes_html_for_jsonl_path(tmp_path: Path) -> None:
+    session_path = tmp_path / "session.jsonl"
+    await JsonlSessionStorage(session_path).append(
+        MessageEntry(id="root", message=UserMessage(content="Path export"))
+    )
+
+    output_path = await cli.export_session_command(str(session_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert output_path == tmp_path / "session.html"
+    assert "<title>Tau session session</title>" in html
+    assert "Path export" in html
+
+
+def test_export_command_invokes_exporter(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[tuple[str, Path | None]] = []
+    output_path = tmp_path / "out.html"
+
+    async def fake_export_session_command(
+        session_ref: str,
+        requested_output_path: Path | None = None,
+    ) -> Path:
+        calls.append((session_ref, requested_output_path))
+        return output_path
+
+    monkeypatch.setattr(cli, "export_session_command", fake_export_session_command)
+
+    result = CliRunner().invoke(app, ["export", "session-1", str(output_path)])
+
+    assert result.exit_code == 0
+    assert calls == [("session-1", output_path)]
+    assert f"Exported session to {output_path}" in result.stdout
 
 
 def test_providers_command_lists_default_provider(

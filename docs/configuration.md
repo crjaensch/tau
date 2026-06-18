@@ -165,7 +165,14 @@ Useful commands:
 tau sessions
 tau --resume <session-id>
 tau --new-session
+tau export <session-id>
+tau export <session-id> session.html
 ```
+
+`tau export` writes a standalone HTML file with the preserved session tree and
+the storage-order transcript. The source can be an indexed session id or a path
+to a JSONL session file. When no output path is provided, Tau writes the HTML
+next to the source session file with a `.html` suffix.
 
 Inside the TUI:
 

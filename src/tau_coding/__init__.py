@@ -68,6 +68,12 @@ from tau_coding.session import (
     default_session_path,
     jsonl_session_storage,
 )
+from tau_coding.session_export import (
+    SessionExportError,
+    default_session_export_path,
+    export_session_html,
+    render_session_html,
+)
 from tau_coding.session_manager import CodingSessionRecord, SessionManager
 from tau_coding.skills import (
     Skill,
@@ -132,6 +138,7 @@ __all__ = [
     "ResourceDiagnostic",
     "ResourceError",
     "SessionManager",
+    "SessionExportError",
     "Skill",
     "SlashCommand",
     "TauPaths",
@@ -159,6 +166,7 @@ __all__ = [
     "create_write_tool_definition",
     "credentials_path",
     "default_session_path",
+    "default_session_export_path",
     "default_openai_provider_config",
     "discover_project_context",
     "discover_project_context_with_diagnostics",
@@ -186,8 +194,10 @@ __all__ = [
     "provider_kind",
     "provider_settings_path",
     "render_prompt_template",
+    "render_session_html",
     "resolve_provider_selection",
     "save_provider_settings",
+    "export_session_html",
     "upsert_provider",
     "upsert_openai_compatible_provider",
 ]
