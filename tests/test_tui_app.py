@@ -1400,6 +1400,26 @@ async def test_tui_app_command_modal_renders_literal_markup_text() -> None:
 
 
 @pytest.mark.anyio
+async def test_tui_app_command_modal_uses_centered_picker_style() -> None:
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        app._show_command_message("/context", "Active context files")
+        await pilot.pause()
+
+        assert isinstance(app.screen, CommandOutputScreen)
+        command_output = app.screen.query_one("#command-output")
+        command_scroll = app.screen.query_one("#command-output-scroll")
+        assert app.screen.styles.align == ("center", "middle")
+        assert command_output.styles.width.value == 76
+        assert command_output.styles.max_width.value == 90
+        assert command_output.styles.height.is_auto
+        assert command_output.styles.max_height.value == 70
+        assert command_scroll.styles.height.is_auto
+        assert command_scroll.styles.max_height.value == 18
+
+
+@pytest.mark.anyio
 async def test_tui_app_escape_cancels_running_session_from_prompt() -> None:
     class RunningSession(FakeSession):
         @property

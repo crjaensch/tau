@@ -1010,7 +1010,8 @@ class TauTuiApp(App[None]):
         border: tall $tau-border;
     }
 
-    SessionPickerScreen {
+    SessionPickerScreen,
+    CommandOutputScreen {
         align: center middle;
     }
 
@@ -1055,12 +1056,13 @@ class TauTuiApp(App[None]):
     }
 
     #command-output {
-        width: 82;
-        max-width: 92%;
-        height: 70%;
-        max-height: 80%;
+        width: 76;
+        max-width: 90%;
+        height: auto;
+        max-height: 70%;
         padding: 1 2;
         background: $tau-chrome-background;
+        color: $tau-chrome-text;
         border: tall $tau-border;
     }
 
@@ -1072,7 +1074,8 @@ class TauTuiApp(App[None]):
     }
 
     #command-output-scroll {
-        height: 1fr;
+        height: auto;
+        max-height: 18;
         background: $tau-transcript-background;
         border: tall $tau-border;
     }
@@ -1570,16 +1573,13 @@ class TauTuiApp(App[None]):
         return item.apply(value)
 
     def _show_command_message(self, command_text: str, message: str) -> None:
-        if "\n" in message:
-            self.push_screen(
-                CommandOutputScreen(
-                    _command_output_title(command_text),
-                    message,
-                    theme=self.tui_settings.resolved_theme,
-                )
+        self.push_screen(
+            CommandOutputScreen(
+                _command_output_title(command_text),
+                message,
+                theme=self.tui_settings.resolved_theme,
             )
-            return
-        self._notify(message)
+        )
 
     def _open_login_picker(self) -> None:
         self.push_screen(
