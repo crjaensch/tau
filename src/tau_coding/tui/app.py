@@ -1901,9 +1901,12 @@ class TauTuiApp(App[None]):
 
         terminal_command = parse_terminal_command(text)
         if terminal_command is not None:
-            await self._run_terminal_command(
-                terminal_command.command,
-                add_to_context=terminal_command.add_to_context,
+            self.run_worker(
+                self._run_terminal_command(
+                    terminal_command.command,
+                    add_to_context=terminal_command.add_to_context,
+                ),
+                exclusive=True,
             )
             return
 
@@ -1997,24 +2000,29 @@ class TauTuiApp(App[None]):
         if not callable(run_terminal_command):
             self._notify("Terminal commands are not available.", severity="error")
             return
+
         item_index = len(self.state.items)
         self.state.add_item(
             "tool",
             f"$ {command.strip()}",
             always_show_tool_result=True,
         )
+        self._follow_transcript_output()
         self._refresh()
+
         try:
             result = await run_terminal_command(command, add_to_context=add_to_context)
         except Exception as exc:  # noqa: BLE001 - surface command execution failures in the TUI
             if item_index < len(self.state.items):
-                self.state.items[item_index].tool_result_text = (
-                    f"✗ bash\nCould not run command: {exc}"
+                self.state.items[item_index].tool_result_text = format_terminal_command_result_block(
+                    ok=False,
+                    added_to_context=add_to_context,
+                    output=str(exc),
                 )
-                self._refresh()
-                return
             self._notify(f"Could not run command: {exc}", severity="error")
+            self._refresh()
             return
+
         if item_index >= len(self.state.items):
             return
         item = self.state.items[item_index]

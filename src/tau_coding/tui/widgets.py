@@ -152,14 +152,6 @@ class TranscriptMessageWidget(Horizontal):
         margin: 0 0 1 0;
     }
 
-    TranscriptMessageWidget > .transcript-markdown-body > MarkdownFence {
-        margin: 0;
-        background: transparent;
-    }
-
-    TranscriptMessageWidget > .transcript-markdown-body > MarkdownFence > Label {
-        padding: 0;
-    }
     """
 
     def __init__(
@@ -235,7 +227,7 @@ class StreamingTranscriptMessageWidget(ThemedMarkdownWidget):
         padding: 0 1 0 0;
     }
 
-    StreamingTranscriptMessageWidget MarkdownParagraph {
+    StreamingTranscriptMessageWidget > MarkdownParagraph {
         margin: 0 0 1 0;
     }
     """
@@ -256,12 +248,13 @@ class StreamingTranscriptMessageWidget(ThemedMarkdownWidget):
         return self._stream
 
     async def append_fragment(self, fragment: str) -> None:
-        """Append streamed markdown without rebuilding the whole transcript."""
+        """Append streamed markdown using the same renderer as finalized messages."""
         if not fragment:
             return
         self.item.text += fragment
         self.selection_text += fragment
-        await self.stream.write(fragment)
+        self._stream = None
+        await self.update(self.item.text)
 
     async def replace_text(self, text: str) -> None:
         """Replace the current markdown text, usually with the final provider message."""
@@ -488,7 +481,7 @@ class TranscriptView(VerticalScroll):
                     theme=self._render_theme,
                 )
             return
-        if text is not None and text != widget.selection_text:
+        if text is not None:
             await widget.replace_text(text)
         self._active_assistant_widget = None
 

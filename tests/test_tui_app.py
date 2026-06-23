@@ -1070,6 +1070,17 @@ async def test_tui_streaming_deltas_update_active_message_without_full_refresh()
         ]
     )
     app = TauTuiApp(session)
+    stream_replacements: list[str] = []
+    original_replace_text = StreamingTranscriptMessageWidget.replace_text
+
+    async def tracking_replace_text(
+        self: StreamingTranscriptMessageWidget,
+        text: str,
+    ) -> None:
+        stream_replacements.append(text)
+        await original_replace_text(self, text)
+
+    StreamingTranscriptMessageWidget.replace_text = tracking_replace_text  # type: ignore[method-assign]
     full_refreshes = 0
 
     original_refresh = app._refresh
@@ -1081,15 +1092,19 @@ async def test_tui_streaming_deltas_update_active_message_without_full_refresh()
 
     app._refresh = tracking_refresh  # type: ignore[method-assign]
 
-    async with app.run_test(size=(120, 30)) as pilot:
-        await app._run_prompt("stream")
-        await pilot.pause()
+    try:
+        async with app.run_test(size=(120, 30)) as pilot:
+            await app._run_prompt("stream")
+            await pilot.pause()
 
-        transcript = app.query_one("#transcript", TranscriptView)
-        streamed = app.query_one(StreamingTranscriptMessageWidget)
-        transcript_text = "\n".join(line.text for line in transcript.lines)
+            transcript = app.query_one("#transcript", TranscriptView)
+            streamed = app.query_one(StreamingTranscriptMessageWidget)
+            transcript_text = "\n".join(line.text for line in transcript.lines)
+    finally:
+        StreamingTranscriptMessageWidget.replace_text = original_replace_text  # type: ignore[method-assign]
 
     assert full_refreshes == 1
+    assert stream_replacements == ["alpha beta"]
     assert streamed.selection_text == "alpha beta"
     assert "alpha beta" in transcript_text
 
@@ -3122,6 +3137,31 @@ async def test_tui_app_marks_failed_terminal_command_as_error() -> None:
     assert session.prompt_texts == []
     assert app.state.items[-1].text == "$ false"
     assert app.state.items[-1].tool_result_text == "✗ bash · not added to context\nfailed"
+
+
+@pytest.mark.anyio
+async def test_tui_app_marks_terminal_command_exception_as_failed() -> None:
+    session = FakeSession()
+    app = TauTuiApp(session)
+
+    async def fake_run_terminal_command(
+        command: str,
+        *,
+        add_to_context: bool,
+    ) -> TerminalCommandResult:
+        del command, add_to_context
+        raise RuntimeError("boom")
+
+    session.run_terminal_command = fake_run_terminal_command  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        prompt = app.query_one("#prompt")
+        prompt.value = "!! false"
+        await pilot.press("enter")
+        await pilot.pause()
+
+    assert app.state.items[-1].text == "$ false"
+    assert app.state.items[-1].tool_result_text == "✗ bash · not added to context\nboom"
 
 
 @pytest.mark.anyio
