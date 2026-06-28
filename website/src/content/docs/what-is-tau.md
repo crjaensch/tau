@@ -19,7 +19,7 @@ It's two things at once:
 
 :::note[Why "Tau"?]
 The name is a small joke about picking the *right* foundation. See
-[Why "Tau"?](/why-tau/) for the (genuinely fun) math rant behind it.
+[Why "Tau"?](../why-tau/) for the (genuinely fun) math rant behind it.
 :::
 
 ## What can it do?

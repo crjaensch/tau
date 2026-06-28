@@ -18,7 +18,15 @@ function remarkRelativeMdLinks() {
     const visit = (/** @type {any} */ node) => {
       if (node.type === "link" && typeof node.url === "string") {
         const url = node.url;
+        // Root-absolute internal links (e.g. "/why-tau/") need `base` prepended;
+        // Astro does not do this for Markdown links.
         if (
+          url.startsWith("/") &&
+          !url.startsWith("//") &&
+          !url.startsWith(BASE)
+        ) {
+          node.url = BASE + url.replace(/^\//, "");
+        } else if (
           url &&
           !/^https?:\/\//.test(url) &&
           !url.startsWith("/") &&
